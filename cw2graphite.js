@@ -3,14 +3,70 @@ require('./lib/date');
 var global_options = require('./lib/options.js').readCmdOptions();
 
 var cloudwatch = require('aws2js').load('cloudwatch', global_options.credentials.accessKeyId, global_options.credentials.secretAccessKey);
-
 cloudwatch.setRegion(global_options.region_name);
 
-var metrics = global_options.metrics_config.metrics
 
-for(index in metrics) {
-	getOneStat(metrics[index],global_options.region_name);
+// gets list of all ELB Names and passes them to callback function parameter
+function getAllELBNames(callback) {
+  var elb = require('aws2js').load('elb',  global_options.credentials.accessKeyId, global_options.credentials.secretAccessKey);
+  elb.setRegion(global_options.region_name);
+  // TODO implement pagination
+  elb.request('DescribeLoadBalancers', {}, function (error, response) {
+    var elb_names = [];
+    if (error) {
+      console.error(error);
+    } else {
+      elbs = response.DescribeLoadBalancersResult.LoadBalancerDescriptions.member;
+      for(index in elbs) {
+	elb_names.push(elbs[index].LoadBalancerName)
+      }
+    }
+    callback(elb_names);
+  });
 }
+
+// returns a hash with all details needed for an cloudwatch metrics query
+function buildMetricQuery(namespace, name, unit, statistics, dimension_name, dimension_value) {
+  return {
+    'Namespace': namespace,
+    'MetricName': name,
+    'Unit' : unit,
+    'Statistics.member.1': statistics,
+    'Dimensions.member.1.Name': dimension_name,
+    'Dimensions.member.1.Value': dimension_value
+  }
+}
+
+// gets a few ELB metrics based on parameter - an array of ELB names
+function getELBMetrics(elbs) {
+  for (index in elbs) {
+    var elb = elbs[index];
+    getOneStat(buildMetricQuery('AWS/ELB', 'Latency', 'Seconds', 'Average', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'HealthyHostCount', 'Count', 'Average', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'UnHealthyHostCount', 'Count', 'Average', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_2XX', 'Count', 'Sum', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_3XX', 'Count', 'Sum', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_4XX', 'Count', 'Sum', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_5XX', 'Count', 'Sum', 'LoadBalancerName', elb),
+               global_options.region_name);
+  }
+}
+
+if (process.argv[process.argv.length -1] == '--all-elbs') {
+  getAllELBNames(getELBMetrics);
+} else {
+  var metrics = global_options.metrics_config.metrics
+  for(index in metrics) {
+    getOneStat(metrics[index],global_options.region_name);
+  }
+}
+
 
 function getOneStat(metric,regionName) {
 	var interval = 11;
