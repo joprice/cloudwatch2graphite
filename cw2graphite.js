@@ -38,6 +38,7 @@ function buildMetricQuery(namespace, name, unit, statistics, dimension_name, dim
 }
 
 // gets a few ELB metrics based on parameter - an array of ELB names
+// Ref: http://docs.aws.amazon.com/ElasticLoadBalancing/latest/DeveloperGuide/ts-elb-http-errors.html
 function getELBMetrics(elbs) {
   for (index in elbs) {
     var elb = elbs[index];
@@ -54,6 +55,10 @@ function getELBMetrics(elbs) {
     getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_4XX', 'Count', 'Sum', 'LoadBalancerName', elb),
                global_options.region_name);
     getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_5XX', 'Count', 'Sum', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_ELB_5XX', 'Count', 'Sum', 'LoadBalancerName', elb),
+               global_options.region_name);
+    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_ELB_4XX', 'Count', 'Sum', 'LoadBalancerName', elb),
                global_options.region_name);
   }
 }
