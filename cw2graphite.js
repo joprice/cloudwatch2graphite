@@ -1,159 +1,198 @@
+var config = require('./lib/readConfig.js').readCmdOptions();
+
+// Now using the official Amazon Web Services SDK for Javascript
+var AWS = require("aws-sdk");
+
+// We'll use the Cloudwatch API
+var cloudwatch = new AWS.CloudWatch(config.awsCredentials);
+
+// get the graphite prefix from the metrics config or use cloudwatch as default
+var graphitePrefix = config.metricsConfig.carbonNameSpacePrefix || 'cloudwatch';
+
+// use legacy format, defaulting to false
+var useLegacyFormat = config.metricsConfig.legacyFormat;
+
+// pulling all of lodash for _.sortBy(), does it matter? Do we even need to sort?
+var _ = require('lodash');
+
+// TODO: do we need both those libraries, do we need any?
 var dateFormat = require('dateformat');
 require('./lib/date');
-var global_options = require('./lib/options.js').readCmdOptions();
 
-var cloudwatch = require('aws2js').load('cloudwatch', global_options.credentials.accessKeyId, global_options.credentials.secretAccessKey);
-cloudwatch.setRegion(global_options.region_name);
+// number of minutes of recent data to query
+var interval = 3;
 
+// Between now and 11 minutes ago
+var now = new Date();
+var then = (interval).minutes().ago();
+var end_time = dateFormat(now, "isoUtcDateTime");
+var start_time = dateFormat(then, "isoUtcDateTime");
 
-// gets list of all ELB Names and passes them to callback function parameter
-function getAllELBNames(callback) {
-  var elb = require('aws2js').load('elb',  global_options.credentials.accessKeyId, global_options.credentials.secretAccessKey);
-  elb.setRegion(global_options.region_name);
-  // TODO implement pagination
-  elb.request('DescribeLoadBalancers', {}, function (error, response) {
-    var elb_names = [];
-    if (error) {
-      console.error(error);
-    } else {
-      elbs = response.DescribeLoadBalancersResult.LoadBalancerDescriptions.member;
-      for(index in elbs) {
-	elb_names.push(elbs[index].LoadBalancerName)
-      }
-    }
-    callback(elb_names);
-  });
+// We used to use this when looking at Billing metrics
+// if ( metric.Namespace.match(/Billing/) ) {
+//     then.setHours(then.getHours() - 30)
+// }
+// if ( metric.Namespace.match(/Billing/) ) {
+//     options["Period"] = '28800'
+// }
+
+var metrics = config.metricsConfig.metrics;
+
+getAllELBNames(getELBMetrics);
+getAllRDSInstanceNames(getRDSMetrics);
+getAllElasticCacheNames(getElasticCacheMetrics);
+
+for (var index in metrics) {
+    printMetric(metrics[index], start_time, end_time);
+}
+
+function printMetric(metric, get_start_time, get_end_time) {
+
+    var getMetricStatistics_param = metric;
+
+    getMetricStatistics_param.StartTime = get_start_time;
+    getMetricStatistics_param.EndTime = get_end_time;
+
+    cloudwatch.getMetricStatistics(getMetricStatistics_param, function (err, data) {
+        if (err) {
+            console.error(err, err.stack); // an error occurred
+            console.error("on:\n" + JSON.stringify(getMetricStatistics_param, null, 2));
+        }
+        else {
+            formatter = useLegacyFormat ? legacyFormat : newFormat;
+            console.log( formatter(metric, data).join("\n"));
+        }
+    });
+}
+
+// Takes the orig query and the response and formats the response as an array of strings
+function newFormat(query, data) {
+    var dimension_prefix = _.map(query.Dimensions, function(dim) {
+        return dim.Name + '_' + dim.Value;
+    }).join('.');
+
+    return _.map(data.Datapoints, function(point) {
+        var name = query.Namespace.replace("/", ".");
+        name += '.' + dimension_prefix;
+        name += '.' + query.MetricName;
+        var value = point[query['Statistics']];
+        var time = parseInt(new Date(point.Timestamp).getTime() / 1000.0);
+        return name + ' ' + value + ' ' + time;
+    });
+}
+
+// Takes the orig query and the response and formats the response as an array of strings
+// according to old style of cloudwatch2graphite.
+function legacyFormat(query, data) {
+
+    // the legacy format is to only use the dimension Values in the prefix
+    var dimension_prefix = _.map(query.Dimensions, function(dim) {
+        return dim.Value;
+    }).join('.');
+
+    return _.map(data.Datapoints, function(point) {
+        var name = query.Namespace.replace("/", ".");
+        name += '.' + dimension_prefix;
+        name += '.' + query.MetricName;
+        name += '.' + query['Statistics'];
+        name += '.' + query['Unit'];
+        var value = point[query['Statistics']];
+        var time = parseInt(new Date(point.Timestamp).getTime() / 1000.0);
+        return graphitePrefix + '.' + name.toLowerCase() + ' ' + value + ' ' + time;
+    });
 }
 
 // returns a hash with all details needed for an cloudwatch metrics query
-function buildMetricQuery(namespace, name, unit, statistics, dimension_name, dimension_value) {
-  return {
-    'Namespace': namespace,
-    'MetricName': name,
-    'Unit' : unit,
-    'Statistics.member.1': statistics,
-    'Dimensions.member.1.Name': dimension_name,
-    'Dimensions.member.1.Value': dimension_value
-  }
+function buildMetricQuery(namespace, name, unit, statistics, dimensions, period) {
+    return {
+        'Namespace': namespace,
+        'MetricName': name,
+        'Unit' : unit,
+        'Statistics': [statistics],
+        'Dimensions' : dimensions,
+        'Period' : period || 60,
+    }
 }
 
-// gets a few ELB metrics based on parameter - an array of ELB names
+// executes callback with array of names of all ELBs
+function getAllELBNames(callback) {
+    var elb = new AWS.ELB( {'region' : config.awsCredentials.region});
+    elb.describeLoadBalancers({}, function(err, data) {
+        if (err) {
+            console.log(err);
+            callback([]);
+        }
+        callback(_.pluck(data.LoadBalancerDescriptions, 'LoadBalancerName'));
+    });
+}
+
+// takes array of ELB names and gets a variety metrics
 function getELBMetrics(elbs) {
-  for (index in elbs) {
-    var elb = elbs[index];
-    getOneStat(buildMetricQuery('AWS/ELB', 'Latency', 'Seconds', 'Average', 'LoadBalancerName', elb),
-               global_options.region_name);
-    getOneStat(buildMetricQuery('AWS/ELB', 'HealthyHostCount', 'Count', 'Average', 'LoadBalancerName', elb),
-               global_options.region_name);
-    getOneStat(buildMetricQuery('AWS/ELB', 'UnHealthyHostCount', 'Count', 'Average', 'LoadBalancerName', elb),
-               global_options.region_name);
-    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_2XX', 'Count', 'Sum', 'LoadBalancerName', elb),
-               global_options.region_name);
-    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_3XX', 'Count', 'Sum', 'LoadBalancerName', elb),
-               global_options.region_name);
-    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_4XX', 'Count', 'Sum', 'LoadBalancerName', elb),
-               global_options.region_name);
-    getOneStat(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_5XX', 'Count', 'Sum', 'LoadBalancerName', elb),
-               global_options.region_name);
-  }
+    for (index in elbs) {
+        var elb = elbs[index];
+        var dimensions = [ { "Name" : 'LoadBalancerName', "Value" : elb} ];
+        printMetric(buildMetricQuery('AWS/ELB', 'Latency', 'Seconds', 'Average', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'HealthyHostCount', 'Count', 'Average', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'UnHealthyHostCount', 'Count', 'Average', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_2XX', 'Count', 'Sum', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_3XX', 'Count', 'Sum', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_4XX', 'Count', 'Sum', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'HTTPCode_Backend_5XX', 'Count', 'Sum', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'HTTPCode_ELB_4XX', 'Count', 'Sum', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/ELB', 'HTTPCode_ELB_5XX', 'Count', 'Sum', dimensions), start_time, end_time);
+    }
 }
 
-if (process.argv[process.argv.length -1] == '--all-elbs') {
-  getAllELBNames(getELBMetrics);
-} else {
-  var metrics = global_options.metrics_config.metrics
-  for(index in metrics) {
-    getOneStat(metrics[index],global_options.region_name);
-  }
+// executes callback with array of names of all RDS db instances
+function getAllRDSInstanceNames(callback) {
+    new AWS.RDS( {'region' : config.awsCredentials.region}).describeDBInstances({}, function(err, data) {
+        if (err) {
+            console.log(err);
+            callback([]);
+        }
+        callback(_.pluck(data.DBInstances, 'DBInstanceIdentifier'));
+    });
 }
 
+// takes array of RDS db instance names and gets a variety metrics
+function getRDSMetrics(instances) {
+    for (index in instances) {
+        var instance = instances[index];
+        var dimensions = [ { "Name" : 'DBInstanceIdentifier', "Value" : instance} ];
+        printMetric(buildMetricQuery('AWS/RDS', 'CPUUtilization', 'Percent', 'Average', dimensions), start_time, end_time);
+        printMetric(buildMetricQuery('AWS/RDS', 'DatabaseConnections', 'Count', 'Average', dimensions), start_time, end_time);
+    }
+}
 
-function getOneStat(metric,regionName) {
-	var interval = 11;
+// executes callback with array of hashes of that include ElastiCache CacheClusterId and CacheNodeId
+function getAllElasticCacheNames(callback) {
+    var ec = new AWS.ElastiCache({'region' : config.awsCredentials.region});
+    ec.describeCacheClusters({ ShowCacheNodeInfo: true}, function(err, data) {
+        if (err) {
+            console.log(err);
+            callback([]);
+        }
+        var nodes = _.map(data.CacheClusters, function(value, key) {
+            return [{'Name':'CacheClusterId', 'Value':value.CacheClusterId},
+                    {'Name':'CacheNodeId', 'Value':value.CacheNodes[0].CacheNodeId}];
+        });
+        callback(nodes);
+    });
+}
 
-	var now = new Date();
-	var then = (interval).minutes().ago()
-
-	if ( metric.Namespace.match(/Billing/) ) {
-	    then.setHours(then.getHours() - 30)
-	}
-
-	var end_time = dateFormat(now, "isoUtcDateTime");
-	var start_time = dateFormat(then, "isoUtcDateTime");
-
-
-	var options = {
-		Namespace: metric.Namespace,
-		MetricName: metric.MetricName,
-		Period: '60',
-		StartTime: start_time,
-		EndTime: end_time,
-		"Statistics.member.1": metric["Statistics.member.1"],
-		Unit: metric.Unit,
-	}
-
-	if ( metric.Namespace.match(/Billing/) ) {
-	    options["Period"] = '28800'
-	}
-
-	metric.name = (global_options.metrics_config.carbonNameSpacePrefix != undefined) ? global_options.metrics_config.carbonNameSpacePrefix + "." : "";
-	metric.name = metric.name.replace("{regionName}",regionName);
-	
-	metric.name += metric.Namespace.replace("/", ".");
-
-	for (var i=1;i<=10;i++) {
-		if (metric["Dimensions.member."+i+".Name"]!==undefined && metric["Dimensions.member."+i+".Value"]!==undefined) {
-			options["Dimensions.member."+i+".Name"] = metric["Dimensions.member."+i+".Name"]
-			options["Dimensions.member."+i+".Value"] = metric["Dimensions.member."+i+".Value"]
-
-			metric.name += "." + metric["Dimensions.member."+i+".Value"];
-		}
-	}
-	
-	metric.name += "." + metric.MetricName;
-	metric.name += "." + metric["Statistics.member.1"];
-	metric.name += "." + metric.Unit;
-
-	metric.name = metric.name.toLowerCase()
-
-	// console.log(metric);
-	cloudwatch.request('GetMetricStatistics', options, function(error, response) {
-		if(error) {
-			console.error("ERROR ! ",error);
-			return;
-		}
-		if (! response.GetMetricStatisticsResult) {
-			console.error("ERROR ! response.GetMetricStatisticsResult is undefined for metric " + metric.name);
-			return;
-		}
-		if (!response.GetMetricStatisticsResult.Datapoints) {
-			console.error("ERROR ! response.GetMetricStatisticsResult.Datapoints is undefined for metric " + metric.name);
-			return;
-		}
-			
-		var memberObject = response.GetMetricStatisticsResult.Datapoints.member;
-		if (memberObject == undefined) {
-			console.error("WARNING ! no data point available for metric " + metric.name);
-			return;
-		}
-
-		var dataPoints;
-		if(memberObject.length === undefined) {
-			dataPoints = [memberObject];
-		} else {
-			// samples might not be sorted in chronological order
-			dataPoints = memberObject.sort(function(m1,m2){
-				var d1 = new Date(m1.Timestamp), d2 = new Date(m2.Timestamp);
-				return d1 - d2
-			});
-		}
-		// Very often in Cloudwtch the last aggregated point is inaccurate and might be updated 1 or 2 minutes later
-		// this is not a problem if we choose to overwrite it into graphite, so we read the 3 last points.
-		if (dataPoints.length > global_options.metrics_config.numberOfOverlappingPoints) {
-			dataPoints = dataPoints.slice(dataPoints.length-global_options.metrics_config.numberOfOverlappingPoints, dataPoints.length);
-		}
-		for (var point in dataPoints) {
-			console.log("%s %s %s", metric.name, dataPoints[point][metric["Statistics.member.1"]], parseInt(new Date(dataPoints[point].Timestamp).getTime() / 1000.0));
-		}
-	});
+// takes array of hashes of ElastiCache CacheClusterId and CacheNodeId and gets a variety metrics
+function getElasticCacheMetrics(nodes) {
+    for (index in nodes) {
+        var node = nodes[index];
+        printMetric(buildMetricQuery('AWS/ElastiCache', 'CPUUtilization', 'Percent', 'Average', node), start_time, end_time);
+        byte_metrics = ['UnusedMemory', 'NetworkBytesIn', 'NetworkBytesOut'];
+        for (index in byte_metrics) {
+            printMetric(buildMetricQuery('AWS/ElastiCache', byte_metrics[index], 'Bytes', 'Average', node), start_time, end_time);
+        }
+        count_metrics = ['CurrConnections', 'CurrItems', 'Evictions', 'Reclaimed', 'GetHits',
+                         'GetMisses', 'CmdGet', 'CmdSet', 'DeleteHits', 'DeleteMisses', 'NewItems' ];
+        for (index in count_metrics) {
+            printMetric(buildMetricQuery('AWS/ElastiCache', count_metrics[index], 'Count', 'Average', node), start_time, end_time);
+        }
+    }
 }
