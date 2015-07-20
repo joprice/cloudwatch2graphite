@@ -116,7 +116,7 @@ function buildMetricQuery(namespace, name, unit, statistics, dimensions, period)
 
 // executes callback with array of names of all ELBs
 function getAllELBNames(callback) {
-    var elb = new AWS.ELB( {'region' : config.awsCredentials.region});
+    var elb = new AWS.ELB(config.awsCredentials);
     elb.describeLoadBalancers({}, function(err, data) {
         if (err) {
             console.log(err);
@@ -145,7 +145,8 @@ function getELBMetrics(elbs) {
 
 // executes callback with array of names of all RDS db instances
 function getAllRDSInstanceNames(callback) {
-    new AWS.RDS( {'region' : config.awsCredentials.region}).describeDBInstances({}, function(err, data) {
+    var rds = new AWS.RDS(config.awsCredentials);
+    rds.describeDBInstances({}, function(err, data) {
         if (err) {
             console.log(err);
             callback([]);
@@ -166,7 +167,7 @@ function getRDSMetrics(instances) {
 
 // executes callback with array of hashes of that include ElastiCache CacheClusterId and CacheNodeId
 function getAllElasticCacheNames(callback) {
-    var ec = new AWS.ElastiCache({'region' : config.awsCredentials.region});
+    var ec = new AWS.ElastiCache(config.awsCredentials);
     ec.describeCacheClusters({ ShowCacheNodeInfo: true}, function(err, data) {
         if (err) {
             console.log(err);
