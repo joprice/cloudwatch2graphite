@@ -186,12 +186,12 @@ function getElasticCacheMetrics(nodes) {
     for (index in nodes) {
         var node = nodes[index];
         printMetric(buildMetricQuery('AWS/ElastiCache', 'CPUUtilization', 'Percent', 'Average', node), start_time, end_time);
-        byte_metrics = ['UnusedMemory', 'NetworkBytesIn', 'NetworkBytesOut'];
+      byte_metrics = ['UnusedMemory', 'FreeableMemory', 'NetworkBytesIn', 'NetworkBytesOut'];
         for (index in byte_metrics) {
             printMetric(buildMetricQuery('AWS/ElastiCache', byte_metrics[index], 'Bytes', 'Average', node), start_time, end_time);
         }
-        count_metrics = ['CurrConnections', 'CurrItems', 'Evictions', 'Reclaimed', 'GetHits',
-                         'GetMisses', 'CmdGet', 'CmdSet', 'DeleteHits', 'DeleteMisses', 'NewItems' ];
+      count_metrics = ['CurrConnections', 'CurrItems', 'Evictions', 'Reclaimed', 'GetHits', 'CacheHits',
+                       'GetMisses', 'CacheMisses', 'CmdGet', 'CmdSet', 'DeleteHits', 'DeleteMisses', 'NewItems', 'NewConnections' ];
         for (index in count_metrics) {
             printMetric(buildMetricQuery('AWS/ElastiCache', count_metrics[index], 'Count', 'Average', node), start_time, end_time);
         }
