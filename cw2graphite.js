@@ -40,7 +40,22 @@ var metrics = config.metricsConfig.metrics;
 
 getAllELBNames(getELBMetrics);
 getAllRDSInstanceNames(getRDSMetrics);
-getAllElasticCacheNames(getElasticCacheMetrics);
+
+//TODO: read this from config
+var elasticCacheMetrics = {
+  byteMetrics: [
+    'UnusedMemory', 'FreeableMemory', 'NetworkBytesIn', 'NetworkBytesOut'
+  ],
+  countMetrics: [
+    'CurrConnections', 'CurrItems', 'Evictions', 'Reclaimed', 'GetHits', 'CacheHits',
+    'GetMisses', 'CacheMisses', 'GetTypeCmds', 'SetTypeCmds', 'CmdGet', 'CmdSet', 'DeleteHits', 
+    'DeleteMisses', 'NewItems', 'NewConnections' 
+  ]
+};
+
+getAllElasticCacheNames(function(nodes) { 
+  getElasticCacheMetrics(nodes, elasticCacheMetrics);
+});
 
 for (var index in metrics) {
     printMetric(metrics[index], start_time, end_time);
@@ -181,19 +196,20 @@ function getAllElasticCacheNames(callback) {
     });
 }
 
+
 // takes array of hashes of ElastiCache CacheClusterId and CacheNodeId and gets a variety metrics
-function getElasticCacheMetrics(nodes) {
+function getElasticCacheMetrics(nodes, elasticCacheMetrics) {
     for (index in nodes) {
         var node = nodes[index];
+
         printMetric(buildMetricQuery('AWS/ElastiCache', 'CPUUtilization', 'Percent', 'Average', node), start_time, end_time);
-      byte_metrics = ['UnusedMemory', 'FreeableMemory', 'NetworkBytesIn', 'NetworkBytesOut'];
-        for (index in byte_metrics) {
-            printMetric(buildMetricQuery('AWS/ElastiCache', byte_metrics[index], 'Bytes', 'Average', node), start_time, end_time);
-        }
-      count_metrics = ['CurrConnections', 'CurrItems', 'Evictions', 'Reclaimed', 'GetHits', 'CacheHits',
-                       'GetMisses', 'CacheMisses', 'GetTypeCmds', 'SetTypeCmds', 'CmdGet', 'CmdSet', 'DeleteHits', 'DeleteMisses', 'NewItems', 'NewConnections' ];
-        for (index in count_metrics) {
-            printMetric(buildMetricQuery('AWS/ElastiCache', count_metrics[index], 'Count', 'Average', node), start_time, end_time);
-        }
+
+        elasticCacheMetrics.byteMetrics.forEach(function(metric) {
+            printMetric(buildMetricQuery('AWS/ElastiCache', metric, 'Bytes', 'Average', node), start_time, end_time);
+        });
+
+        elasticCacheMetrics.countMetrics.forEach(function(metric) {
+            printMetric(buildMetricQuery('AWS/ElastiCache', metric, 'Count', 'Average', node), start_time, end_time);
+        });
     }
 }
