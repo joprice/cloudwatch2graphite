@@ -200,7 +200,10 @@ function getElasticCacheMetrics(nodes, elasticCacheMetrics) {
         printMetric(buildMetricQuery('AWS/ElastiCache', 'CPUUtilization', 'Percent', 'Average', node), start_time, end_time);
 
         Object.keys(elasticCacheMetrics).forEach(function(unit) {
-          printMetric(buildMetricQuery('AWS/ElastiCache', metrics[unit], unit, 'Average', node), start_time, end_time);
+          var metrics = metrics[unit]
+          metrics.forEach(function(metric) { 
+            printMetric(buildMetricQuery('AWS/ElastiCache', metric, unit, 'Average', node), start_time, end_time);
+          });
         })
     }
 }
