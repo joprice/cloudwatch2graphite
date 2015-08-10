@@ -43,6 +43,33 @@
         ]
       }
     ],
-    "carbonNameSpacePrefix": "cloudwatch"
+    "carbonNameSpacePrefix": "cloudwatch",
+    "elasticCacheMetrics": {
+      "byteMetrics": [
+        "UnusedMemory", 
+        "FreeableMemory", 
+        "NetworkBytesIn", 
+        "NetworkBytesOut"
+      ],
+      "countMetrics": [
+        "CurrConnections", 
+        "CurrItems", 
+        "Evictions", 
+        "Reclaimed", 
+        "GetHits", 
+        "CacheHits",
+        "GetMisses", 
+        "CacheMisses", 
+        "GetTypeCmds", 
+        "SetTypeCmds", 
+        "CmdGet", 
+        "CmdSet", 
+        "DeleteHits", 
+        "DeleteMisses", 
+        "NewItems", 
+        "NewConnections" 
+      ]
+    }
   }
 }
+

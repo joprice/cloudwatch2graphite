@@ -12,6 +12,8 @@ var graphitePrefix = config.metricsConfig.carbonNameSpacePrefix || 'cloudwatch';
 // use legacy format, defaulting to false
 var useLegacyFormat = config.metricsConfig.legacyFormat;
 
+var elasticCacheMetrics = config.elasticCacheMetrics
+
 // pulling all of lodash for _.sortBy(), does it matter? Do we even need to sort?
 var _ = require('lodash');
 
@@ -40,18 +42,6 @@ var metrics = config.metricsConfig.metrics;
 
 getAllELBNames(getELBMetrics);
 getAllRDSInstanceNames(getRDSMetrics);
-
-//TODO: read this from config
-var elasticCacheMetrics = {
-  byteMetrics: [
-    'UnusedMemory', 'FreeableMemory', 'NetworkBytesIn', 'NetworkBytesOut'
-  ],
-  countMetrics: [
-    'CurrConnections', 'CurrItems', 'Evictions', 'Reclaimed', 'GetHits', 'CacheHits',
-    'GetMisses', 'CacheMisses', 'GetTypeCmds', 'SetTypeCmds', 'CmdGet', 'CmdSet', 'DeleteHits', 
-    'DeleteMisses', 'NewItems', 'NewConnections' 
-  ]
-};
 
 getAllElasticCacheNames(function(nodes) { 
   getElasticCacheMetrics(nodes, elasticCacheMetrics);
