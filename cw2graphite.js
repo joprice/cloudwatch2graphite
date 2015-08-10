@@ -4,7 +4,12 @@ var config = require('./lib/readConfig.js').readCmdOptions();
 var AWS = require("aws-sdk");
 
 // We'll use the Cloudwatch API
-var cloudwatch = new AWS.CloudWatch(config.awsCredentials);
+var cloudwatch;
+if (config.awsCredentials != undefined) {
+  cloudwatch = new AWS.CloudWatch(config.awsCredentials);
+} else {
+  cloudwatch = new AWS.CloudWatch();
+}
 
 // get the graphite prefix from the metrics config or use cloudwatch as default
 var graphitePrefix = config.metricsConfig.carbonNameSpacePrefix || 'cloudwatch';
